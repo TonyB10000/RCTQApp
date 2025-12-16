@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RCTQ - Critical Thinking Engine</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Firebase (Compat Libraries) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; font-family: 'Inter', sans-serif; }
+        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(148, 163, 184, 0.1); }
+        .error-banner { background: #7f1d1d; color: #fca5a5; padding: 1rem; margin: 1rem; border-radius: 0.5rem; font-family: monospace; white-space: pre-wrap; }
+        /* Sliders & Forms */
+        input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
+        input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; height: 20px; width: 20px; border-radius: 50%; background: #6366f1; cursor: pointer; margin-top: -8px; box-shadow: 0 0 10px rgba(99, 102, 241, 0.5); }
+        input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 4px; cursor: pointer; background: #334155; border-radius: 2px; }
+        select { background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e"); background-position: right 0.5rem center; background-repeat: no-repeat; background-size: 1.5em 1.5em; padding-right: 2.5rem; -webkit-appearance: none; appearance: none; }
+        .animate-fadeIn { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+        textarea { resize: none; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <div id="error-container"></div>
+
+    <script>
+        window.onerror = function(message, source, lineno, colno, error) {
+            const container = document.getElementById('error-container');
+            const msg = `CRITICAL ERROR:\n${message}\nLine: ${lineno}`;
+            container.innerHTML += `<div class="error-banner">${msg}</div>`;
+            console.error(error);
+        };
+    </script>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- KEYS & CONFIGURATION ---
+        const GEMINI_API_KEY = "AIzaSyDxqVXeJFLeesdXqPAuqY_cp9LVGV9c3-E"; // Your AI Studio Key
+        const STRIPE_LINK = "https://buy.stripe.com/14A5kDgej5t1gmTgjW00000"; // Your Payment Link
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyBDPlan92YkgldmTYFXQLseX1I_J32PU9w", // Your Firebase Key
+            authDomain: "rctq-engine.firebaseapp.com",
+            projectId: "rctq-engine",
+            storageBucket: "rctq-engine.firebasestorage.app",
+            messagingSenderId: "568602082362",
+            appId: "1:568602082362:web:5ee59cc90fcf5afe8c8903"
+        };
+
+        // Initialize Firebase
+        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+        const auth = firebase.auth();
+        const db = firebase.firestore();
+        const appId = 'rctq-app';
+
+        // --- ICONS ---
+        const Icon = ({ children, className }) => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>{children}</svg>;
+        const Brain = (p) => <Icon {...p}><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 1.98-3A2.5 2.5 0 0 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-1.98-3A2.5 2.5 0 0 0 14.5 2Z"/></Icon>;
+        const Shield = (p) => <Icon {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></Icon>;
+        const Zap = (p) => <Icon {...p}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></Icon>;
+        const CheckCircle = (p) => <Icon {...p}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></Icon>;
+        const LogOut = (p) => <Icon {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></Icon>;
+        const ChevronRight = (p) => <Icon {...p}><path d="m9 18 6-6-6-6"/></Icon>;
+        const CreditCard = (p) => <Icon {...p}><rect width="20" height="14" x="2" y="5" rx="2"/><line x1="2" x2="22" y1="10" y2="10"/></Icon>;
+        const BarChart3 = (p) => <Icon {...p}><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></Icon>;
+        const RefreshCw = (p) => <Icon {...p}><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></Icon>;
+        const Lock = (p) => <Icon {...p}><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></Icon>;
+        const Swords = (p) => <Icon {...p}><polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5"/><line x1="13" x2="19" y1="19" y2="13"/><line x1="16" x2="20" y1="16" y2="20"/><line x1="19" x2="21" y1="21" y2="19"/><polyline points="14.5 6.5 18 3 21 3 21 6 17.5 9.5"/><line x1="5" x2="9" y1="14" y2="18"/><line x1="7" x2="4" y1="17" y2="20"/><line x1="3" x2="5" y1="19" y2="21"/></Icon>;
+        const BookOpen = (p) => <Icon {...p}><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></Icon>;
+        const Share2 = (p) => <Icon {...p}><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" x2="15.42" y1="13.51" y2="17.49"/><line x1="15.41" x2="8.59" y1="6.51" y2="10.49"/></Icon>;
+        const X = (p) => <Icon {...p}><path d="M18 6 6 18"/><path d="M6 6 18 18"/></Icon>;
+        const Mail = (p) => <Icon {...p}><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></Icon>;
+        const Info = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="16" y2="12"/><line x1="12" x2="12.01" y1="8" y2="8"/></Icon>;
+        const ChevronLeft = (p) => <Icon {...p}><path d="m15 18-6-6 6-6"/></Icon>;
+        const History = (p) => <Icon {...p}><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></Icon>;
+        const Flame = (p) => <Icon {...p}><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.1.2-2.2.5-3.3a9 9 0 0 0 3 3.3z"/></Icon>;
+        const WifiOff = (p) => <Icon {...p}><line x1="1" x2="23" y1="1" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" x2="12.01" y1="20" y2="20"/></Icon>;
+
+        // --- UTILS ---
+        function distributeErrors(totalErrors = 30, totalSlots = 10, maxPerSlot = 5) {
+            const targetThrees = Math.floor(Math.random() * 5); 
+            let slots, safety = 0;
+            while(true && safety < 5000) {
+                safety++;
+                slots = new Array(totalSlots).fill(0);
+                let remaining = totalErrors;
+                while (remaining > 0) {
+                    const idx = Math.floor(Math.random() * totalSlots);
+                    if (slots[idx] < maxPerSlot) { slots[idx]++; remaining--; }
+                }
+                const threeCount = slots.filter(n => n === 3).length;
+                if (threeCount === targetThrees) return slots;
+            }
+            return slots;
+        }
+
+        // --- AI FUNCTION (DIRECT CLIENT-SIDE) ---
+        async function callGeminiDirect(prompt) {
+            // Hunter-Seeker: Try Flash first, then Pro
+            const models = ["gemini-1.5-flash", "gemini-1.5-flash-001", "gemini-pro"];
+            
+            for (const model of models) {
+                try {
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+                    const response = await fetch(url, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        return data.candidates[0].content.parts[0].text;
+                    }
+                } catch (e) {
+                    console.log(`Failed model ${model}:`, e);
+                }
+            }
+            throw new Error("AI Connection Failed. Please try again.");
+        }
+
+        // ================= UI COMPONENTS =================
+        function StatBox({ label, value, sub, highlight }) {
+            return (
+                <div className={`glass-panel p-4 rounded-xl ${highlight ? 'ring-1 ring-amber-500/50' : ''}`}>
+                    <div className="text-slate-400 text-xs uppercase tracking-wider mb-1">{label}</div>
+                    <div className="text-2xl font-bold text-white">{value}</div>
+                    <div className="text-xs text-slate-500 mt-1">{sub}</div>
+                </div>
+            );
+        }
+
+        function FeatureCard({ icon: Icon, title, desc }) {
+            return (
+                <div className="glass-panel p-6 rounded-xl hover:bg-slate-800/50 transition">
+                    <Icon className="w-8 h-8 text-indigo-400 mb-3" />
+                    <h3 className="font-bold text-white mb-1">{title}</h3>
+                    <p className="text-sm text-slate-400">{desc}</p>
+                </div>
+            );
+        }
+
+        function CognitiveRadar({ stats }) {
+            const data = { Science: stats?.science || 50, Religion: stats?.religion || 50, Pseudo: stats?.pseudo || 50, Supernat: stats?.supernat || 50, Logic: stats?.logic || 50 };
+            const labels = Object.keys(data);
+            const values = Object.values(data);
+            const center = 100, radius = 80;
+            const getCoords = (val, i) => { const angle = (Math.PI * 2 * i) / labels.length - Math.PI / 2; return [center + Math.cos(angle) * (val / 100 * radius), center + Math.sin(angle) * (val / 100 * radius)]; };
+            const points = values.map((v, i) => getCoords(v, i).join(',')).join(' ');
+            const bgPoints = values.map((_, i) => getCoords(100, i).join(',')).join(' ');
+            
+            return (
+                <div className="relative w-full max-w-[200px] mx-auto">
+                    <svg viewBox="0 0 200 200" className="w-full h-full drop-shadow-xl">
+                        <polygon points={bgPoints} fill="rgba(30, 41, 59, 0.5)" stroke="#475569" strokeWidth="1" />
+                        {values.map((_, i) => { const [x, y] = getCoords(100, i); return <line key={i} x1={center} y1={center} x2={x} y2={y} stroke="#334155" strokeWidth="1" />; })}
+                        <polygon points={points} fill="rgba(99, 102, 241, 0.4)" stroke="#818cf8" strokeWidth="2" />
+                        {labels.map((lbl, i) => { const [x, y] = getCoords(115, i); return <text key={i} x={x} y={y} fill="#94a3b8" fontSize="10" textAnchor="middle" alignmentBaseline="middle">{lbl}</text>; })}
+                    </svg>
+                    <div className="text-center text-xs text-slate-500 mt-2 font-mono">COGNITIVE FINGERPRINT</div>
+                </div>
+            );
+        }
+
+        // ================= MODALS =================
+        function CodexModal({ isOpen, onClose, title, content, loading }) {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-slate-900 border border-indigo-500/50 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl relative">
+                        <div className="bg-slate-800 p-4 flex justify-between items-center border-b border-slate-700">
+                            <div className="flex items-center gap-2 text-indigo-400"><BookOpen className="w-5 h-5" /><h3 className="font-bold text-lg">The Codex</h3></div>
+                            <button onClick={onClose} className="text-slate-400 hover:text-white transition"><X className="w-6 h-6" /></button>
+                        </div>
+                        <div className="p-6">
+                            {loading ? <div className="text-center py-8 text-slate-400 animate-pulse">Consulting the Knowledge Base...</div> : <div className="prose prose-invert prose-sm"><h4 className="text-xl font-bold mb-2">{title}</h4><div className="whitespace-pre-line">{content}</div></div>}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function AboutModal({ isOpen, onClose }) {
+            if (!isOpen) return null;
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-slate-900 border border-indigo-500/30 rounded-2xl w-full max-w-lg overflow-hidden relative">
+                        <div className="bg-slate-800 p-4 flex justify-between items-center border-b border-slate-700">
+                            <h3 className="font-bold text-lg text-white">About</h3>
+                            <button onClick={onClose} className="text-slate-400 hover:text-white"><X className="w-6 h-6" /></button>
+                        </div>
+                        <div className="p-6 prose prose-invert prose-sm text-slate-300">
+                            <h4 className="text-white">Tony Berard</h4>
+                            <p>Author of <em>The Bible: A Modern Testament</em> and <em>Points, Lines, and Conic Sections</em>. Creator of <em>Fighting Chess</em> and Tines & Barbs.</p>
+                            <h4 className="text-white mt-4">RCTQ Engine</h4>
+                            <p>A tool to inoculate minds against the post-truth era.</p>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function ReportModal({ isOpen, onClose }) {
+            const [issue, setIssue] = useState("");
+            if (!isOpen) return null;
+            const send = () => { window.location.href = `mailto:tinesandbarbs@gmail.com?subject=RCTQ Issue&body=${encodeURIComponent(issue)}`; onClose(); };
+            return (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+                    <div className="bg-slate-900 border border-red-500/30 rounded-2xl w-full max-w-md overflow-hidden relative">
+                        <div className="bg-slate-800 p-4 flex justify-between items-center border-b border-slate-700">
+                            <h3 className="font-bold text-lg text-red-400">Report Issue</h3>
+                            <button onClick={onClose} className="text-slate-400 hover:text-white"><X className="w-6 h-6" /></button>
+                        </div>
+                        <div className="p-6">
+                            <textarea className="w-full bg-slate-800 border border-slate-600 rounded p-3 text-white h-32" value={issue} onChange={e=>setIssue(e.target.value)} placeholder="Describe the problem..." />
+                            <button onClick={send} className="w-full mt-4 bg-red-600 text-white font-bold py-2 rounded">Send Report</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // ================= VIEWS =================
+        function WelcomeView({ onLogin }) {
+            return (
+                <div className="flex flex-col items-center justify-center text-center space-y-8 mt-12">
+                    <div className="relative group">
+                        <div className="absolute -inset-1 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-full blur opacity-25 group-hover:opacity-75 transition duration-1000"></div>
+                        <div className="relative bg-slate-900 ring-1 ring-slate-900/5 rounded-full p-6"><Brain className="w-24 h-24 text-indigo-500" /></div>
+                    </div>
+                    <div className="max-w-xl space-y-4">
+                        <h2 className="text-4xl font-extrabold text-white">Can you detect the lies?</h2>
+                        <p className="text-lg text-slate-400">Identify logical fallacies, factual errors, and contradictions in infinite AI-generated tests.</p>
+                    </div>
+                    <button onClick={onLogin} className="px-8 py-4 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-full transition hover:scale-105 flex items-center gap-2">Enter the Simulation <ChevronRight className="w-5 h-5" /></button>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 w-full mt-12 text-left">
+                        <FeatureCard icon={Shield} title="Physics & Logic" desc="Ground truth based on empirical reality." />
+                        <FeatureCard icon={Zap} title="AI Generated" desc="Every test is unique. 10 slots, 30 errors." />
+                        <FeatureCard icon={BarChart3} title="Global Ranking" desc="Measure your RQ
