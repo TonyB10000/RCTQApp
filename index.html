@@ -46,7 +46,6 @@
         const { useState, useEffect, useRef } = React;
 
         // --- 2. CONFIGURATION (PRE-FILLED) ---
-        // I have added .trim() in the code below to ensure these keys work perfectly even if copied with spaces
         const GEMINI_API_KEY = "AIzaSyDxqVXeJFLeesdXqPAuqY_cp9LVGV9c3-E"; 
         const STRIPE_LINK = "https://buy.stripe.com/14A5kDgej5t1gmTgjW00000";
 
@@ -108,17 +107,22 @@
 
         // --- AI FUNCTION (DIRECT CLIENT-SIDE) ---
         async function callGeminiDirect(prompt) {
-            // Hunter-Seeker: Revised list with most robust models first
-            const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"];
+            // HUNTER-SEEKER: Aggressive list of models/versions to try
+            // We mix v1beta and v1 APIs with different model aliases.
+            const attempts = [
+                { model: "gemini-1.5-flash", version: "v1beta" },
+                { model: "gemini-1.5-flash-001", version: "v1beta" },
+                { model: "gemini-1.5-pro", version: "v1beta" },
+                { model: "gemini-pro", version: "v1beta" },   // Old faithful
+                { model: "gemini-1.5-flash", version: "v1" }  // Standard stable API
+            ];
+
             let errorDetails = "";
-            
-            // Clean Key to remove accidental spaces/newlines
             const cleanKey = GEMINI_API_KEY.trim();
             
-            for (const model of models) {
+            for (const attempt of attempts) {
                 try {
-                    // Using v1beta which is standard for these models
-                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
+                    const url = `https://generativelanguage.googleapis.com/${attempt.version}/models/${attempt.model}:generateContent?key=${cleanKey}`;
                     const response = await fetch(url, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
@@ -127,17 +131,17 @@
                     
                     if (response.ok) {
                         const data = await response.json();
-                        // Validation: Ensure data structure is correct
+                        // Validation
                         if (data.candidates && data.candidates.length > 0 && data.candidates[0].content) {
                              return data.candidates[0].content.parts[0].text;
                         }
                     } 
                     
                     const errText = await response.text();
-                    errorDetails += `[${model}]: ${response.status} - ${errText}\n`;
+                    errorDetails += `[${attempt.model} ${attempt.version}]: ${response.status} - ${errText}\n`;
                     
                 } catch (e) {
-                    errorDetails += `[${model}]: Network Error - ${e.message}\n`;
+                    errorDetails += `[${attempt.model}]: Network Error - ${e.message}\n`;
                 }
             }
             throw new Error(`ALL MODELS FAILED:\n${errorDetails}`);
