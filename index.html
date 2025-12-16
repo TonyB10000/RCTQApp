@@ -108,13 +108,15 @@
         // --- AI FUNCTION (DIRECT CLIENT-SIDE) ---
         async function callGeminiDirect(prompt) {
             // HUNTER-SEEKER: Aggressive list of models/versions to try
-            // ADDED: gemini-1.0-pro (Old Faithful) and gemini-1.5-pro-latest
+            // We iterate through every possible combination until one works.
             const attempts = [
                 { model: "gemini-1.5-flash", version: "v1beta" },
-                { model: "gemini-1.0-pro", version: "v1beta" }, // <-- The Fix: Older, stable model
+                { model: "gemini-1.5-flash-001", version: "v1beta" },
                 { model: "gemini-1.5-pro", version: "v1beta" },
+                { model: "gemini-1.0-pro", version: "v1beta" },
                 { model: "gemini-pro", version: "v1beta" },
-                { model: "gemini-1.5-flash", version: "v1" }
+                { model: "gemini-1.5-flash", version: "v1" },
+                { model: "gemini-pro", version: "v1" } // Old faithful on V1
             ];
 
             let errorDetails = "";
@@ -131,6 +133,7 @@
                     
                     if (response.ok) {
                         const data = await response.json();
+                        // Validation: Ensure data structure is correct
                         if (data.candidates && data.candidates.length > 0 && data.candidates[0].content) {
                              return data.candidates[0].content.parts[0].text;
                         }
@@ -144,21 +147,16 @@
                 }
             }
 
-            // DIAGNOSTIC: If all fail, ask Google what models ARE available
-            console.warn("All generation attempts failed. Checking available models...");
-            try {
-                const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${cleanKey}`;
-                const listResp = await fetch(listUrl);
-                if (listResp.ok) {
-                    const listData = await listResp.json();
-                    const modelNames = listData.models ? listData.models.map(m => m.name) : "No models found";
-                    throw new Error(`ALL MODELS FAILED.\nYOUR KEY HAS ACCESS TO: ${JSON.stringify(modelNames)}\n\nErrors:\n${errorDetails}`);
-                }
-            } catch(e) {
-                // Ignore secondary error
-            }
-
-            throw new Error(`ALL MODELS FAILED:\n${errorDetails}`);
+            // EMERGENCY FALLBACK: If AI is completely dead, return a hard-coded test
+            // so the user can at least play the game mechanics.
+            console.warn("AI Failed. Activating Emergency Protocol.");
+            return JSON.stringify({
+                questions: [
+                    { id: 1, sector: "System", text: "EMERGENCY PROTOCOL: The AI connection failed, but the simulation must continue. Identify the 1 logical error in this statement: 'Since the AI is offline, logic itself has ceased to exist.'", error_count: 1, errors: [{type: "Hyperbole", explanation: "Logic exists independently of AI status."}] },
+                    { id: 2, sector: "System", text: "The server returned a 404 error, therefore the internet has been deleted. (Find 1 error)", error_count: 1, errors: [{type: "Non Sequitur", explanation: "A missing file does not mean the internet is gone."}] },
+                    { id: 3, sector: "System", text: "If you cannot see the AI, it must be hiding. If it is hiding, it is scared. Therefore, the AI is scared. (Find 1 error)", error_count: 1, errors: [{type: "Anthropomorphism", explanation: "AI does not have feelings."}] }
+                ]
+            });
         }
 
         // ================= UI COMPONENTS =================
