@@ -109,6 +109,7 @@
         async function callGeminiDirect(prompt) {
             // Hunter-Seeker: Try Flash first, then Pro
             const models = ["gemini-1.5-flash", "gemini-1.5-flash-001", "gemini-pro"];
+            let errorDetails = "";
             
             for (const model of models) {
                 try {
@@ -122,12 +123,15 @@
                     if (response.ok) {
                         const data = await response.json();
                         return data.candidates[0].content.parts[0].text;
+                    } else {
+                        const errText = await response.text();
+                        errorDetails += `[${model}]: ${response.status} - ${errText}\n`;
                     }
                 } catch (e) {
-                    console.log(`Failed model ${model}:`, e);
+                    errorDetails += `[${model}]: Network Error - ${e.message}\n`;
                 }
             }
-            throw new Error("AI Connection Failed. Please try again.");
+            throw new Error(`ALL MODELS FAILED:\n${errorDetails}`);
         }
 
         // ================= UI COMPONENTS =================
@@ -359,10 +363,12 @@
             const [codexContent, setCodexContent] = useState("");
             const [codexTitle, setCodexTitle] = useState("");
             const [codexLoading, setCodexLoading] = useState(false);
+            const [errorMsg, setErrorMsg] = useState(""); // Add error state
 
             useEffect(() => {
                 const generateTest = async () => {
                     setIsLoading(true);
+                    setErrorMsg("");
                     try {
                         const errorCounts = distributeErrors(30, 10, 5); 
                         let sectorsToUse = [];
@@ -412,7 +418,7 @@
                         
                     } catch (err) { 
                         console.error("Generation failed", err); 
-                        alert(`Error: ${err.message}\n\nCheck console for details.`);
+                        setErrorMsg(err.message); // Set specific error message for UI
                         setIsLoading(false);
                     } finally { setIsLoading(false); }
                 };
@@ -493,7 +499,7 @@
                 return (
                     <div className="flex flex-col items-center justify-center h-64 text-center">
                         <div className="text-red-400 font-bold mb-4">Initialization Failed</div>
-                        <p className="text-slate-400 mb-6 text-sm">The AI could not generate the test protocol.<br/>Please try again.</p>
+                        <p className="text-slate-400 mb-6 text-sm max-w-md">{errorMsg || "The AI could not generate the test protocol."}<br/>Please try again.</p>
                         <button onClick={() => setView('dashboard')} className="px-6 py-2 bg-slate-700 rounded-lg text-white hover:bg-slate-600 transition">Return to Dashboard</button>
                     </div>
                 );
