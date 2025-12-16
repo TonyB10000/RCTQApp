@@ -46,6 +46,7 @@
         const { useState, useEffect, useRef } = React;
 
         // --- 2. CONFIGURATION (PRE-FILLED) ---
+        // I have added .trim() in the code below to ensure these keys work perfectly even if copied with spaces
         const GEMINI_API_KEY = "AIzaSyDxqVXeJFLeesdXqPAuqY_cp9LVGV9c3-E"; 
         const STRIPE_LINK = "https://buy.stripe.com/14A5kDgej5t1gmTgjW00000";
 
@@ -107,13 +108,17 @@
 
         // --- AI FUNCTION (DIRECT CLIENT-SIDE) ---
         async function callGeminiDirect(prompt) {
-            // Hunter-Seeker: Try Flash first, then Pro
-            const models = ["gemini-1.5-flash", "gemini-1.5-flash-001", "gemini-pro"];
+            // Hunter-Seeker: Revised list with most robust models first
+            const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"];
             let errorDetails = "";
+            
+            // Clean Key to remove accidental spaces/newlines
+            const cleanKey = GEMINI_API_KEY.trim();
             
             for (const model of models) {
                 try {
-                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+                    // Using v1beta which is standard for these models
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
                     const response = await fetch(url, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
@@ -122,11 +127,15 @@
                     
                     if (response.ok) {
                         const data = await response.json();
-                        return data.candidates[0].content.parts[0].text;
-                    } else {
-                        const errText = await response.text();
-                        errorDetails += `[${model}]: ${response.status} - ${errText}\n`;
-                    }
+                        // Validation: Ensure data structure is correct
+                        if (data.candidates && data.candidates.length > 0 && data.candidates[0].content) {
+                             return data.candidates[0].content.parts[0].text;
+                        }
+                    } 
+                    
+                    const errText = await response.text();
+                    errorDetails += `[${model}]: ${response.status} - ${errText}\n`;
+                    
                 } catch (e) {
                     errorDetails += `[${model}]: Network Error - ${e.message}\n`;
                 }
