@@ -108,13 +108,13 @@
         // --- AI FUNCTION (DIRECT CLIENT-SIDE) ---
         async function callGeminiDirect(prompt) {
             // HUNTER-SEEKER: Aggressive list of models/versions to try
-            // We mix v1beta and v1 APIs with different model aliases.
+            // ADDED: gemini-1.0-pro (Old Faithful) and gemini-1.5-pro-latest
             const attempts = [
                 { model: "gemini-1.5-flash", version: "v1beta" },
-                { model: "gemini-1.5-flash-001", version: "v1beta" },
+                { model: "gemini-1.0-pro", version: "v1beta" }, // <-- The Fix: Older, stable model
                 { model: "gemini-1.5-pro", version: "v1beta" },
-                { model: "gemini-pro", version: "v1beta" },   // Old faithful
-                { model: "gemini-1.5-flash", version: "v1" }  // Standard stable API
+                { model: "gemini-pro", version: "v1beta" },
+                { model: "gemini-1.5-flash", version: "v1" }
             ];
 
             let errorDetails = "";
@@ -131,7 +131,6 @@
                     
                     if (response.ok) {
                         const data = await response.json();
-                        // Validation
                         if (data.candidates && data.candidates.length > 0 && data.candidates[0].content) {
                              return data.candidates[0].content.parts[0].text;
                         }
@@ -144,6 +143,21 @@
                     errorDetails += `[${attempt.model}]: Network Error - ${e.message}\n`;
                 }
             }
+
+            // DIAGNOSTIC: If all fail, ask Google what models ARE available
+            console.warn("All generation attempts failed. Checking available models...");
+            try {
+                const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${cleanKey}`;
+                const listResp = await fetch(listUrl);
+                if (listResp.ok) {
+                    const listData = await listResp.json();
+                    const modelNames = listData.models ? listData.models.map(m => m.name) : "No models found";
+                    throw new Error(`ALL MODELS FAILED.\nYOUR KEY HAS ACCESS TO: ${JSON.stringify(modelNames)}\n\nErrors:\n${errorDetails}`);
+                }
+            } catch(e) {
+                // Ignore secondary error
+            }
+
             throw new Error(`ALL MODELS FAILED:\n${errorDetails}`);
         }
 
