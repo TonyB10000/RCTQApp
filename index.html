@@ -45,7 +45,7 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // --- 2. CONFIGURATION (PRE-FILLED) ---
+        // --- 2. CONFIGURATION ---
         const GEMINI_API_KEY = "AIzaSyDxqVXeJFLeesdXqPAuqY_cp9LVGV9c3-E"; 
         const STRIPE_LINK = "https://buy.stripe.com/14A5kDgej5t1gmTgjW00000";
 
@@ -438,8 +438,9 @@
                             ${systemDirective}
                             ${contentDirective}
                             Generate a psychometric test of 10 distinct paragraphs.
+                            CRITICAL INSTRUCTION: Each 'text' must be a detailed paragraph (at least 3-4 sentences long), not a single sentence.
                             TARGET LEVEL: ${targetLevel}
-                            TOTAL ERRORS: Exactly 30.
+                            TOTAL ERRORS: Exactly 30 across all questions.
                             GROUND TRUTH: Empirical reality and formal logic.
                             ERROR TYPES: Factual, Logical, Omission, Contradiction.
                             SECTORS:
