@@ -105,15 +105,14 @@
             return slots;
         }
 
-        // --- AI FUNCTION (AUTO-DISCOVERY) ---
+        // --- AI FUNCTION (DIRECT CLIENT-SIDE) ---
         async function callGeminiDirect(prompt) {
             const cleanKey = GEMINI_API_KEY.trim();
             if (cleanKey.includes("PASTE")) throw new Error("Invalid API Key");
 
             // 1. AUTO-DISCOVERY: Ask Google what models we have
-            let validModel = null;
-            let discoveryError = "";
-
+            let validModels = [];
+            
             try {
                 // Fetch list of available models for this key
                 const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${cleanKey}`;
@@ -121,35 +120,31 @@
                 
                 if (listResponse.ok) {
                     const listData = await listResponse.json();
-                    // Find the first model that supports 'generateContent'
-                    const usableModel = listData.models?.find(m => 
-                        m.supportedGenerationMethods && 
-                        m.supportedGenerationMethods.includes("generateContent") &&
-                        (m.name.includes("gemini") || m.name.includes("pro"))
-                    );
-                    
-                    if (usableModel) {
-                        validModel = usableModel.name.replace("models/", ""); // Clean name
-                        console.log("Auto-Discovered Model:", validModel);
-                        alert(`Success! Connected to Brain: ${validModel}`); // User Feedback
-                    } else {
-                        discoveryError = "Key valid, but no 'generateContent' models found in list.";
+                    // Find ALL usable text models
+                    if (listData.models) {
+                        validModels = listData.models.filter(m => 
+                            m.supportedGenerationMethods && 
+                            m.supportedGenerationMethods.includes("generateContent")
+                        ).map(m => m.name.replace("models/", ""));
                     }
-                } else {
-                    discoveryError = `ListModels Failed: ${listResponse.status}`;
                 }
             } catch (e) {
-                discoveryError = `Discovery Network Error: ${e.message}`;
+                console.warn("Auto-discovery failed, using fallbacks.");
             }
 
-            // 2. FALLBACK LIST (If discovery fails, try these blindly)
-            const fallbackModels = ["gemini-1.5-flash", "gemini-pro", "gemini-1.0-pro"];
-            const modelsToTry = validModel ? [validModel] : fallbackModels;
+            // 2. BUILD PRIORITY LIST
+            // Start with discovered models (if any), then add reliable fallbacks
+            let modelsToTry = [...validModels, "gemini-1.5-flash", "gemini-1.0-pro", "gemini-pro"];
+            
+            // Remove duplicates
+            modelsToTry = [...new Set(modelsToTry)];
 
-            let errorDetails = `Discovery Log: ${discoveryError}\n`;
+            let errorDetails = "";
+            let success = false;
 
             for (const model of modelsToTry) {
                 try {
+                    // Try v1beta first
                     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
                     const response = await fetch(url, {
                         method: "POST",
