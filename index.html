@@ -107,45 +107,27 @@
 
         // --- AI FUNCTION (DIRECT CLIENT-SIDE) ---
         async function callGeminiDirect(prompt) {
-            const cleanKey = GEMINI_API_KEY.trim();
-            if (cleanKey.includes("PASTE")) throw new Error("Invalid API Key");
-
-            // 1. AUTO-DISCOVERY: Ask Google what models we have
-            let validModels = [];
-            
-            try {
-                // Fetch list of available models for this key
-                const listUrl = `https://generativelanguage.googleapis.com/v1beta/models?key=${cleanKey}`;
-                const listResponse = await fetch(listUrl);
-                
-                if (listResponse.ok) {
-                    const listData = await listResponse.json();
-                    // Find ALL usable text models
-                    if (listData.models) {
-                        validModels = listData.models.filter(m => 
-                            m.supportedGenerationMethods && 
-                            m.supportedGenerationMethods.includes("generateContent")
-                        ).map(m => m.name.replace("models/", ""));
-                    }
-                }
-            } catch (e) {
-                console.warn("Auto-discovery failed, using fallbacks.");
-            }
-
-            // 2. BUILD PRIORITY LIST
-            // Start with discovered models (if any), then add reliable fallbacks
-            let modelsToTry = [...validModels, "gemini-1.5-flash", "gemini-1.0-pro", "gemini-pro"];
-            
-            // Remove duplicates
-            modelsToTry = [...new Set(modelsToTry)];
+            // Hunter-Seeker: Aggressive list of models/versions to try
+            const attempts = [
+                { model: "gemini-1.5-flash", version: "v1beta" },
+                { model: "gemini-1.5-flash-001", version: "v1beta" },
+                { model: "gemini-1.5-pro", version: "v1beta" },
+                { model: "gemini-1.0-pro", version: "v1beta" },
+                { model: "gemini-pro", version: "v1beta" },
+                { model: "gemini-1.5-flash", version: "v1" },
+                { model: "gemini-pro", version: "v1" } // Old faithful on V1
+            ];
 
             let errorDetails = "";
-            let success = false;
+            const cleanKey = GEMINI_API_KEY.trim();
 
-            for (const model of modelsToTry) {
+            if (cleanKey.includes("PASTE")) {
+                throw new Error("Invalid API Key. You must paste your new key in the code.");
+            }
+            
+            for (const attempt of attempts) {
                 try {
-                    // Try v1beta first
-                    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${cleanKey}`;
+                    const url = `https://generativelanguage.googleapis.com/${attempt.version}/models/${attempt.model}:generateContent?key=${cleanKey}`;
                     const response = await fetch(url, {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
@@ -160,14 +142,14 @@
                     } 
                     
                     const errText = await response.text();
-                    errorDetails += `[${model}]: ${response.status} - ${errText}\n`;
+                    errorDetails += `[${attempt.model} ${attempt.version}]: ${response.status} - ${errText.substring(0, 100)}...\n`;
                     
                 } catch (e) {
-                    errorDetails += `[${model}]: Network Error - ${e.message}\n`;
+                    errorDetails += `[${attempt.model}]: Network Error - ${e.message}\n`;
                 }
             }
 
-            // EMERGENCY FALLBACK
+            // EMERGENCY FALLBACK: If AI is completely dead, return a hard-coded test
             console.warn("AI Failed. Activating Emergency Protocol.");
             return JSON.stringify({
                 questions: [
@@ -438,7 +420,7 @@
                             ${systemDirective}
                             ${contentDirective}
                             Generate a psychometric test of 10 distinct paragraphs.
-                            CRITICAL INSTRUCTION: Each 'text' must be a detailed paragraph (at least 3-4 sentences long), not a single sentence.
+                            CRITICAL INSTRUCTION: Each 'text' must be a complex, dense paragraph (at least 6-8 sentences long), rich in context.
                             TARGET LEVEL: ${targetLevel}
                             TOTAL ERRORS: Exactly 30 across all questions.
                             GROUND TRUTH: Empirical reality and formal logic.
