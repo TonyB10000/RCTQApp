@@ -46,9 +46,7 @@
         const { useState, useEffect, useRef } = React;
 
         // --- 2. CONFIGURATION ---
-        // Updated with the key you confirmed works in diagnostic mode
         const GEMINI_API_KEY = "AIzaSyDxqVXeJFLeesdXqPAuqY_cp9LVGV9c3-E"; 
-        
         const STRIPE_LINK = "https://buy.stripe.com/14A5kDgej5t1gmTgjW00000";
 
         const firebaseConfig = {
@@ -109,16 +107,20 @@
 
         // --- AI FUNCTION (DIRECT CLIENT-SIDE) ---
         async function callGeminiDirect(prompt) {
-            // HUNTER-SEEKER: UPDATED WITH THE MODELS CONFIRMED BY DIAGNOSIS
+            // HUNTER-SEEKER: UPDATED WITH 2.5 and 2.0 based on User Diagnostics
             const attempts = [
-                { model: "gemini-2.5-flash", version: "v1beta" },     // PRIMARY (Fastest, Newest)
-                { model: "gemini-2.0-flash", version: "v1beta" },     // BACKUP 1
-                { model: "gemini-flash-latest", version: "v1beta" },  // BACKUP 2
-                { model: "gemini-pro-latest", version: "v1beta" }     // BACKUP 3
+                { model: "gemini-2.5-flash", version: "v1beta" },     // PRIMARY
+                { model: "gemini-2.0-flash", version: "v1beta" },     // BACKUP
+                { model: "gemini-2.5-pro", version: "v1beta" },       // HEAVY
+                { model: "gemini-1.5-flash", version: "v1beta" }      // FALLBACK
             ];
 
             let errorDetails = "";
             const cleanKey = GEMINI_API_KEY.trim();
+
+            if (cleanKey.includes("PASTE")) {
+                throw new Error("Invalid API Key. You must paste your new key in the code.");
+            }
             
             for (const attempt of attempts) {
                 try {
@@ -137,14 +139,14 @@
                     } 
                     
                     const errText = await response.text();
-                    errorDetails += `[${attempt.model}]: ${response.status}\n`; // Simplified error logging
+                    errorDetails += `[${attempt.model} ${attempt.version}]: ${response.status} - ${errText.substring(0, 100)}...\n`;
                     
                 } catch (e) {
-                    errorDetails += `[${attempt.model}]: Network Error\n`;
+                    errorDetails += `[${attempt.model}]: Network Error - ${e.message}\n`;
                 }
             }
 
-            // EMERGENCY FALLBACK
+            // EMERGENCY FALLBACK: If AI is completely dead, return a hard-coded test
             console.warn("AI Failed. Activating Emergency Protocol.");
             return JSON.stringify({
                 questions: [
