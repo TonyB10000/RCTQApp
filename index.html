@@ -107,13 +107,12 @@
 
         // --- AI FUNCTION (DIRECT CLIENT-SIDE) ---
         async function callGeminiDirect(prompt) {
-            // HUNTER-SEEKER: UPDATED to prioritize the models we verified in diagnosis
+            // HUNTER-SEEKER: Re-Ordered based on your Diagnostic results
+            // We know you have 2.5 and 2.0. We put 2.0-flash first as it's often more stable for JSON.
             const attempts = [
-                { model: "gemini-2.5-flash", version: "v1beta" },     // 1. Newest (Confirmed)
-                { model: "gemini-2.0-flash", version: "v1beta" },     // 2. Backup (Confirmed)
-                { model: "gemini-2.0-flash-exp", version: "v1beta" }, // 3. Experimental (Confirmed)
-                { model: "gemini-1.5-flash", version: "v1beta" },     // 4. Old faithful (just in case)
-                { model: "gemini-pro", version: "v1" }               // 5. Last resort
+                { model: "gemini-2.0-flash", version: "v1beta" },     // 1. Stable Modern
+                { model: "gemini-2.0-flash-001", version: "v1beta" }, // 2. Specific Version
+                { model: "gemini-2.5-flash", version: "v1beta" }      // 3. Bleeding Edge
             ];
 
             let errorDetails = "";
@@ -140,22 +139,16 @@
                     } 
                     
                     const errText = await response.text();
-                    errorDetails += `[${attempt.model} ${attempt.version}]: ${response.status}\n`; // Shortened for readability
+                    errorDetails += `[${attempt.model}]: ${response.status} - ${errText.substring(0, 100)}\n`;
                     
                 } catch (e) {
                     errorDetails += `[${attempt.model}]: Network Error\n`;
                 }
             }
 
-            // EMERGENCY FALLBACK
-            console.warn("AI Failed. Activating Emergency Protocol.");
-            return JSON.stringify({
-                questions: [
-                    { id: 1, sector: "System", text: "EMERGENCY PROTOCOL: The AI connection failed, but the simulation must continue. Identify the 1 logical error in this statement: 'Since the AI is offline, logic itself has ceased to exist.'", error_count: 1, errors: [{type: "Hyperbole", explanation: "Logic exists independently of AI status."}] },
-                    { id: 2, sector: "System", text: "The server returned a 404 error, therefore the internet has been deleted. (Find 1 error)", error_count: 1, errors: [{type: "Non Sequitur", explanation: "A missing file does not mean the internet is gone."}] },
-                    { id: 3, sector: "System", text: "If you cannot see the AI, it must be hiding. If it is hiding, it is scared. Therefore, the AI is scared. (Find 1 error)", error_count: 1, errors: [{type: "Anthropomorphism", explanation: "AI does not have feelings."}] }
-                ]
-            });
+            // Throw error to trigger the catch block in GameEngine
+            // This is CRITICAL so the UI knows it failed and can show the log
+            throw new Error(`ALL MODELS FAILED:\n${errorDetails}`);
         }
 
         // ================= UI COMPONENTS =================
@@ -443,7 +436,29 @@
                         
                     } catch (err) { 
                         console.error("Generation failed", err); 
-                        setErrorMsg(err.message); // Set specific error message for UI
+                        // CATCH THE DETAILED ERROR FROM callGeminiDirect
+                        setErrorMsg(err.message); 
+                        
+                        // Populate Fallback Test Data (Full 10 questions)
+                        // This allows the user to play immediately
+                        setTestData({
+                            questions: [
+                                { id: 1, sector: "System", text: "EMERGENCY PROTOCOL: The AI connection failed, but the simulation must continue. Identify the 1 logical error in this statement: 'Since the AI is offline, logic itself has ceased to exist.'", error_count: 1, errors: [{type: "Hyperbole", explanation: "Logic exists independently of AI status."}] },
+                                { id: 2, sector: "System", text: "The server returned a 404 error, therefore the internet has been deleted. (Find 1 error)", error_count: 1, errors: [{type: "Non Sequitur", explanation: "A missing file does not mean the internet is gone."}] },
+                                { id: 3, sector: "System", text: "If you cannot see the AI, it must be hiding. If it is hiding, it is scared. Therefore, the AI is scared. (Find 1 error)", error_count: 1, errors: [{type: "Anthropomorphism", explanation: "AI does not have feelings."}] },
+                                { id: 4, sector: "System", text: "We have tried every model, and none worked. Thus, no models exist. (Find 1 error)", error_count: 1, errors: [{type: "Hasty Generalization", explanation: "Access issues do not mean models don't exist."}] },
+                                { id: 5, sector: "System", text: "The code is perfect, so the error must be the user's fault. (Find 1 error)", error_count: 1, errors: [{type: "False Dilemma", explanation: "Server issues are a third option."}] },
+                                { id: 6, sector: "System", text: "If we wait 2 minutes, it might work. We waited 2 minutes. Therefore it works. (Find 1 error)", error_count: 1, errors: [{type: "Affirming the Consequent", explanation: "Waiting is necessary but not sufficient."}] },
+                                { id: 7, sector: "System", text: "All good apps use AI. This app uses AI. Therefore, this is a good app. (Find 1 error)", error_count: 1, errors: [{type: "Syllogistic Fallacy", explanation: "Using AI does not guarantee quality."}] },
+                                { id: 8, sector: "System", text: "The key worked yesterday, so it must work today. (Find 1 error)", error_count: 1, errors: [{type: "Inductive Fallacy", explanation: "Past performance does not guarantee future results."}] },
+                                { id: 9, sector: "System", text: "Either we fix this bug, or the project is doomed. (Find 1 error)", error_count: 1, errors: [{type: "False Dichotomy", explanation: "We could launch with a fallback."}] },
+                                { id: 10, sector: "System", text: "I believe the AI is working, so it must be working. (Find 1 error)", error_count: 1, errors: [{type: "Subjectivist Fallacy", explanation: "Belief does not alter technical reality."}] }
+                            ]
+                        });
+                        const fallbackAnswers = {};
+                        for(let i=1; i<=10; i++) fallbackAnswers[i] = 0;
+                        setUserAnswers(fallbackAnswers);
+
                         setIsLoading(false);
                     } finally { setIsLoading(false); }
                 };
@@ -519,17 +534,6 @@
 
             if (isLoading) { return ( <div className="flex flex-col items-center justify-center h-96 space-y-4"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div><div className={`text-slate-400 animate-pulse ${attackMode ? 'text-red-400' : ''}`}>{attackMode ? "Calibrating Attack Vectors..." : "Constructing Logic Matrices..."}</div></div> ); }
 
-            // --- FAIL SAFE (PREVENTS WHITE SCREEN CRASH) ---
-            if (!testData) {
-                return (
-                    <div className="flex flex-col items-center justify-center h-64 text-center">
-                        <div className="text-red-400 font-bold mb-4">Initialization Failed</div>
-                        <p className="text-slate-400 mb-6 text-sm max-w-md">{errorMsg || "The AI could not generate the test protocol."}<br/>Please try again.</p>
-                        <button onClick={() => setView('dashboard')} className="px-6 py-2 bg-slate-700 rounded-lg text-white hover:bg-slate-600 transition">Return to Dashboard</button>
-                    </div>
-                );
-            }
-
             if (gameState === 'results') {
                 return (
                     <div className="space-y-6">
@@ -556,137 +560,15 @@
             return (
                 <div className="space-y-6 pb-20">
                     <div className={`flex justify-between items-center sticky top-0 bg-slate-900/95 backdrop-blur z-10 p-4 border-b -mx-4 ${attackMode ? 'border-red-800' : 'border-slate-800'}`}>
-                        <div className="flex flex-col"><h2 className="font-bold text-slate-200">Level {targetLevel} Assessment</h2>{attackMode && <span className="text-xs font-bold text-red-500 animate-pulse">ATTACK MODE ACTIVE</span>}</div>
+                        <div className="flex flex-col"><h2 className="font-bold text-slate-200">Level {targetLevel} Assessment</h2>
+                        {/* FAIL SAFE BANNER */}
+                        {errorMsg && <div className="text-xs text-red-400 bg-red-900/20 p-2 rounded border border-red-500/30 mb-2">⚠ OFFLINE MODE: {errorMsg.split('\n')[0].substring(0,50)}...</div>}
+                        {attackMode && <span className="text-xs font-bold text-red-500 animate-pulse">ATTACK MODE ACTIVE</span>}
+                        </div>
                         <div className="text-sm text-slate-400">Errors identified: <span className="text-white font-bold">{Object.values(userAnswers).reduce((a,b)=>a+b, 0)}</span> / 30</div>
                     </div>
                     <div className="space-y-8">{testData.questions.map((q) => ( <div key={q.id} className={`glass-panel p-6 rounded-xl ${attackMode ? 'border-red-900/30' : ''}`}><div className="flex justify-between items-center mb-3"><span className="text-xs font-bold bg-slate-800 text-indigo-300 px-2 py-1 rounded">{q.sector}</span><div className="flex items-center gap-3 bg-slate-800 rounded-lg p-1"><button onClick={() => handleDecrement(q.id)} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white">-</button><span className="font-mono w-6 text-center font-bold">{userAnswers[q.id]}</span><button onClick={() => handleIncrement(q.id)} className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white">+</button></div></div><p className="text-lg text-slate-200 leading-relaxed font-serif">{q.text}</p></div> ))}</div>
                     <div className="fixed bottom-6 left-0 right-0 px-4 max-w-4xl mx-auto"><button onClick={handleSubmit} className={`w-full text-white font-bold py-4 rounded-xl shadow-lg transition transform hover:-translate-y-1 ${attackMode ? 'bg-red-600 hover:bg-red-500 shadow-red-900/20' : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/20'}`}>Submit Protocol</button></div>
-                </div>
-            );
-        }
-
-        function App() {
-            const [user, setUser] = useState(null);
-            const [userData, setUserData] = useState(null);
-            const [loading, setLoading] = useState(true);
-            const [isOffline, setIsOffline] = useState(false);
-            const [view, setView] = useState('welcome');
-            const [selectedLevel, setSelectedLevel] = useState(1); 
-            const [attackMode, setAttackMode] = useState(false);
-            const [selectedSector, setSelectedSector] = useState('random');
-            const [scenarioMode, setScenarioMode] = useState('standard');
-            const [isReportOpen, setIsReportOpen] = useState(false);
-            const [isAboutOpen, setIsAboutOpen] = useState(false);
-
-            // --- HELPER TO UPDATE DATA BOTH LOCALLY AND IN DB ---
-            const setUpdateUserData = (newData) => {
-                setUserData(newData);
-                localStorage.setItem('rctq_profile', JSON.stringify(newData));
-                if (user && !isOffline && db) {
-                    db.collection('artifacts').doc(appId).collection('users').doc(user.uid).collection('profile').doc('main').set(newData).catch(e => console.log("DB Sync failed", e));
-                }
-            };
-
-            useEffect(() => {
-                // 1. Safety Timer: Force loading to stop after 4 seconds no matter what
-                const safetyTimer = setTimeout(() => {
-                    if (loading) {
-                        console.warn("Auth check timed out. Forcing UI load.");
-                        setLoading(false);
-                    }
-                }, 4000);
-
-                const initAuth = async () => {
-                    if (!auth) { setLoading(false); return; }
-                    try { await auth.signInAnonymously(); } catch (e) { console.warn("Environment auto-login skipped."); }
-                };
-                initAuth();
-
-                // 2. CHECK LOCAL STORAGE FIRST (Instant Load)
-                const saved = localStorage.getItem('rctq_profile');
-                if (saved) {
-                    setUserData(JSON.parse(saved));
-                    setLoading(false); // Can stop loading immediately if we have data
-                }
-
-                const unsubscribe = auth.onAuthStateChanged(async (u) => {
-                    clearTimeout(safetyTimer);
-                    setUser(u);
-                    if (u) {
-                        // 3. TRY DB CONNECTION
-                        const docRef = db.collection('artifacts').doc(appId).collection('users').doc(u.uid).collection('profile').doc('main');
-                        docRef.onSnapshot((doc) => {
-                            if (doc.exists) { 
-                                const data = doc.data();
-                                // Check for Stripe Success
-                                const urlParams = new URLSearchParams(window.location.search);
-                                if (urlParams.get('session_id') && !data.isPremium) {
-                                    const upgraded = { ...data, isPremium: true, level: 11 };
-                                    setUpdateUserData(upgraded);
-                                    window.history.replaceState({}, document.title, "/");
-                                } else {
-                                    setUpdateUserData(data); // Sync DB to Local
-                                }
-                                setIsOffline(false);
-                            } else {
-                                // New user in DB? Create it using local data if available
-                                const newProfile = saved ? JSON.parse(saved) : { isPremium: false, level: 1, testsTaken: 0, averageScore: 0, radar: { science: 50, religion: 50, pseudo: 50, supernat: 50, logic: 50 } };
-                                setUpdateUserData(newProfile);
-                            }
-                        }, (error) => {
-                            // 4. FALLBACK TO OFFLINE MODE
-                            console.warn("Firestore Error:", error.message);
-                            setIsOffline(true);
-                            if (!saved) {
-                                // If no local data either, set default
-                                const defaultProfile = { isPremium: false, level: 1, testsTaken: 0, averageScore: 0, radar: { science: 50, religion: 50, pseudo: 50, supernat: 50, logic: 50 } };
-                                setUpdateUserData(defaultProfile);
-                            }
-                        });
-                        setView('dashboard');
-                    } else { 
-                        if (!saved) setUserData(null); 
-                        setView('welcome'); 
-                    }
-                    setLoading(false);
-                });
-                return () => {
-                    unsubscribe();
-                    clearTimeout(safetyTimer);
-                };
-            }, []);
-
-            const handleLogin = async () => { 
-                if (!auth) { alert("Database connection unavailable."); return; } 
-                try { 
-                    setLoading(true); 
-                    await auth.signInAnonymously(); 
-                } catch (e) { 
-                    console.error("Login failed", e);
-                    // Force offline login if auth fails
-                    setIsOffline(true);
-                    const defaultProfile = { isPremium: false, level: 1, testsTaken: 0, averageScore: 0, radar: { science: 50, religion: 50, pseudo: 50, supernat: 50, logic: 50 } };
-                    setUpdateUserData(defaultProfile);
-                    setView('dashboard');
-                } finally { 
-                    setLoading(false); 
-                } 
-            };
-            const handleLogout = () => { if(auth) auth.signOut(); setView('welcome'); };
-
-            if (loading && !userData) return ( <div className="h-screen w-full flex items-center justify-center bg-slate-900 text-indigo-400"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div></div> );
-
-            return (
-                <div className="min-h-screen flex flex-col items-center p-4 max-w-5xl mx-auto">
-                    <ReportModal isOpen={isReportOpen} onClose={() => setIsReportOpen(false)} />
-                    <AboutModal isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />
-                    <header className="w-full flex justify-between items-center mb-8 p-4 glass-panel rounded-xl"><div className="flex items-center gap-3"><div className="bg-indigo-600 p-2 rounded-lg"><Brain className="text-white w-6 h-6" /></div><div><h1 className="text-xl font-bold tracking-tight">RCTQ Engine</h1><p className="text-xs text-slate-400">Reason & Critical Thinking Quotient</p></div></div>{user && ( <div className="flex items-center gap-4"><button onClick={handleLogout} className="p-2 hover:bg-slate-700 rounded-full transition"><LogOut className="w-5 h-5 text-slate-400" /></button></div> )}</header>
-                    <main className="w-full flex-grow">
-                        {view === 'welcome' && <WelcomeView onLogin={handleLogin} />}
-                        {view === 'dashboard' && userData && ( <Dashboard user={user} userData={userData} setUpdateUserData={setUpdateUserData} setView={setView} selectedLevel={selectedLevel} setSelectedLevel={setSelectedLevel} attackMode={attackMode} setAttackMode={setAttackMode} selectedSector={selectedSector} setSelectedSector={setSelectedSector} scenarioMode={scenarioMode} setScenarioMode={setScenarioMode} isOffline={isOffline} /> )}
-                        {view === 'game' && ( <GameEngine user={user} userData={userData} setUpdateUserData={setUpdateUserData} setView={setView} targetLevel={selectedLevel} attackMode={attackMode} selectedSector={selectedSector} scenarioMode={scenarioMode} isOffline={isOffline} /> )}
-                    </main>
-                    <footer className="w-full py-6 mt-8 text-center border-t border-slate-800"><div className="flex items-center justify-center gap-6 mb-2"><button onClick={() => setIsAboutOpen(true)} className="text-xs text-slate-500 hover:text-indigo-400 transition flex items-center justify-center gap-2"><Info className="w-3 h-3" /> About</button><button onClick={() => setIsReportOpen(true)} className="text-xs text-slate-500 hover:text-indigo-400 transition flex items-center justify-center gap-2"><Mail className="w-3 h-3" /> Report a Problem</button></div><p className="text-[10px] text-slate-600">© 2025 Tony Berard. All rights reserved.</p></footer>
                 </div>
             );
         }
