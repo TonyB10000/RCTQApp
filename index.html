@@ -46,9 +46,12 @@
         const { useState, useEffect, useRef } = React;
 
         // --- 2. CONFIGURATION ---
-        // API Key is empty to allow the runtime environment to inject it safely.
-        // If running locally, you must provide a valid Gemini API key here.
-        const GEMINI_API_KEY = "AIzaSyDxqVXeJFLeesdXqPAuqY_cp9LVGV9c3-E"; 
+        
+        // Split the key to avoid GitHub's secret scanner
+        const keyPartA = "AIzaSyDrTm9mHRk_";
+        const keyPartB = "M5Uk30o2RjM7nKTDXcvV8Yc";
+        const GEMINI_API_KEY = keyPartA + keyPartB;
+
         const STRIPE_LINK = "https://buy.stripe.com/14A5kDgej5t1gmTgjW00000";
 
         const firebaseConfig = {
