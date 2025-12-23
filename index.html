@@ -94,18 +94,21 @@
 
         // --- 4. LOGIC & FUNCTIONS ---
         function distributeErrors(totalErrors = 30, totalSlots = 10, maxPerSlot = 5) {
-            const targetThrees = Math.floor(Math.random() * 5); 
+            // NEW: Randomize total errors slightly to prevent "Average Guessing"
+            // Range: 25 to 35 errors (instead of hard 30)
+            const actualTotal = Math.floor(25 + Math.random() * 10);
+            
             let slots, safety = 0;
             while(true && safety < 5000) {
                 safety++;
                 slots = new Array(totalSlots).fill(0);
-                let remaining = totalErrors;
+                let remaining = actualTotal;
                 while (remaining > 0) {
                     const idx = Math.floor(Math.random() * totalSlots);
                     if (slots[idx] < maxPerSlot) { slots[idx]++; remaining--; }
                 }
-                const threeCount = slots.filter(n => n === 3).length;
-                if (threeCount === targetThrees) return slots;
+                // Removed the specific "targetThrees" constraint to allow more natural variance
+                return slots; 
             }
             return slots;
         }
@@ -446,28 +449,48 @@
             const handleDecrement = (qid) => { setUserAnswers(prev => ({ ...prev, [qid]: Math.max(prev[qid] - 1, 0) })); };
 
             const handleSubmit = async () => {
-                let totalUserDiff = 0; 
-                let maxTheoreticalDeviation = 0; 
+                let rawScore = 0;
                 const sectorScores = {};
 
                 testData.questions.forEach(q => {
                     const actualErrors = q.error_count;
                     const userGuess = userAnswers[q.id];
                     const diff = Math.abs(userGuess - actualErrors);
-                    totalUserDiff += diff;
-                    const maxForQuestion = Math.max(Math.abs(0 - actualErrors), Math.abs(5 - actualErrors));
-                    maxTheoreticalDeviation += maxForQuestion;
+
+                    // NEW SCORING: Weighted Precision System
+                    // Exact match: 15 pts
+                    // Off by 1: 3 pts (Severely reduced from linear)
+                    // Off by >1: -5 pts (Penalty for inaccuracy)
+                    let qScore = 0;
+                    if (diff === 0) qScore = 15;
+                    else if (diff === 1) qScore = 3;
+                    else qScore = -5;
+
+                    rawScore += qScore;
 
                     let key = 'Logic';
                     const s = q.sector.toLowerCase();
                     if(s.includes('science')) key = 'science'; else if(s.includes('religion')) key = 'religion'; else if(s.includes('pseudo')) key = 'pseudo'; else if(s.includes('supernat')) key = 'supernat';
                     if(!sectorScores[key]) sectorScores[key] = [];
-                    sectorScores[key].push(Math.max(0, 100 - (diff * 20))); 
+                    
+                    // Radar value based on precision
+                    let radarVal = 50;
+                    if (diff === 0) radarVal = 100;
+                    else if (diff === 1) radarVal = 70;
+                    else if (diff === 2) radarVal = 30;
+                    else radarVal = 10;
+                    
+                    sectorScores[key].push(radarVal); 
                 });
 
-                const slope = -90 / maxTheoreticalDeviation;
-                const calculatedScore = 145 + (slope * totalUserDiff);
-                const finalScore = Math.max(0, calculatedScore); 
+                // Calculate final RCTQ
+                // Max Raw Score: 150 (10 * 15) -> Targets ~160 IQ
+                // Guessing 3s Score: ~60 (4 exacts, 4 close, 2 misses) -> Targets ~107 IQ (Average)
+                // Min Score: -50 -> Targets ~70 IQ
+                
+                // Formula: Base 70 + (Raw Score / 150) * 90
+                const finalScore = Math.max(50, Math.round(70 + (rawScore / 150) * 90));
+
                 setScore(finalScore);
                 setGameState('results');
 
@@ -561,9 +584,10 @@
             const [user, setUser] = useState(null);
             const [view, setView] = useState('welcome');
             const [userData, setUserData] = useState({
+                isPremium: false,
+                level: 1,
                 testsTaken: 0,
                 averageScore: 0,
-                isPremium: false,
                 radar: { science: 50, religion: 50, pseudo: 50, supernat: 50, logic: 50 }
             });
             const [selectedLevel, setSelectedLevel] = useState(1);
@@ -571,72 +595,110 @@
             const [selectedSector, setSelectedSector] = useState('random');
             const [scenarioMode, setScenarioMode] = useState('standard');
             const [isOffline, setIsOffline] = useState(false);
-            const [showAbout, setShowAbout] = useState(false);
-            const [showReport, setShowReport] = useState(false);
+            const [isAboutOpen, setIsAboutOpen] = useState(false);
+            const [isReportOpen, setIsReportOpen] = useState(false);
 
-            // Auth & Data Loading Logic
+            // Auth & Data Loading
             useEffect(() => {
-                 const unsubAuth = auth.onAuthStateChanged(u => {
-                     if (u) {
-                         setUser(u);
-                         setView('dashboard');
-                         // Fetch Data
-                         const docRef = db.collection('artifacts').doc(appId).collection('users').doc(u.uid);
-                         docRef.get().then(doc => {
-                             if (doc.exists) setUserData(prev => ({...prev, ...doc.data()}));
-                             else docRef.set(userData); // Init defaults
-                         }).catch(e => {
-                             console.error("Offline/Error", e);
-                             setIsOffline(true);
-                         });
-                     } else {
-                         setUser(null);
-                         setView('welcome');
-                     }
-                 });
-                 return () => unsubAuth();
+                const unsubscribe = auth.onAuthStateChanged(async (u) => {
+                    if (u) {
+                        setUser(u);
+                        setView('dashboard');
+                        // Fetch Data
+                        try {
+                            const doc = await db.collection('artifacts').doc(appId).collection('users').doc(u.uid).get();
+                            if (doc.exists) {
+                                setUserData({ ...userData, ...doc.data() });
+                            } else {
+                                // Init new user
+                                await db.collection('artifacts').doc(appId).collection('users').doc(u.uid).set(userData);
+                            }
+                        } catch (e) {
+                            console.error("Offline or Error", e);
+                            setIsOffline(true);
+                        }
+                    } else {
+                        setUser(null);
+                        setView('welcome');
+                    }
+                });
+                return () => unsubscribe();
             }, []);
 
             const handleLogin = async () => {
-                 try {
-                     await auth.signInAnonymously();
-                 } catch (e) {
-                     console.error("Auth failed", e);
-                     setIsOffline(true);
-                     setUser({ uid: 'offline-user' }); // Fake user for offline
-                     setView('dashboard');
-                 }
+                try {
+                    await auth.signInAnonymously();
+                } catch (e) {
+                    console.error(e);
+                    alert("Login Failed: " + e.message);
+                }
             };
 
-            const updateUserData = (newData) => {
-                 setUserData(newData);
-                 if (!isOffline && user) {
-                     db.collection('artifacts').doc(appId).collection('users').doc(user.uid).set(newData, { merge: true });
-                 }
+            const handleUpdateUserData = async (newData) => {
+                setUserData(newData);
+                if (user && !isOffline) {
+                    try {
+                        await db.collection('artifacts').doc(appId).collection('users').doc(user.uid).set(newData, { merge: true });
+                    } catch (e) { console.error("Save failed", e); }
+                }
             };
 
             return (
-                <div className="min-h-screen p-4 md:p-8 max-w-7xl mx-auto">
-                    {/* Header / Nav */}
-                    <div className="flex justify-between items-center mb-8">
-                         <div className="flex items-center gap-2 text-indigo-400 font-bold text-xl cursor-pointer" onClick={() => setView('welcome')}>
-                             <Brain className="w-8 h-8" /> RCTQ <span className="text-slate-600 text-sm font-normal">v2.1</span>
-                         </div>
-                         <div className="flex gap-4">
-                             <button onClick={() => setShowAbout(true)} className="text-slate-400 hover:text-white"><Info className="w-5 h-5"/></button>
-                             <button onClick={() => setShowReport(true)} className="text-slate-400 hover:text-red-400"><Mail className="w-5 h-5"/></button>
-                             {user && <button onClick={() => auth.signOut()} className="text-slate-400 hover:text-white"><LogOut className="w-5 h-5"/></button>}
-                         </div>
-                    </div>
+                <div className="min-h-screen bg-slate-900 text-slate-200 font-sans selection:bg-indigo-500/30">
+                    <nav className="border-b border-slate-800 bg-slate-900/50 backdrop-blur sticky top-0 z-40">
+                        <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+                            <div className="flex items-center gap-2 cursor-pointer" onClick={() => user && setView('dashboard')}>
+                                <Brain className="w-6 h-6 text-indigo-500" />
+                                <span className="font-bold text-lg tracking-tight text-white">RCTQ <span className="text-slate-500 text-xs">ENGINE v2.4</span></span>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                <button onClick={() => setIsAboutOpen(true)} className="text-slate-400 hover:text-white transition"><Info className="w-5 h-5" /></button>
+                                <button onClick={() => setIsReportOpen(true)} className="text-slate-400 hover:text-red-400 transition"><Mail className="w-5 h-5" /></button>
+                                {user && <button onClick={() => auth.signOut()} className="text-slate-400 hover:text-white transition"><LogOut className="w-5 h-5" /></button>}
+                            </div>
+                        </div>
+                    </nav>
 
-                    {view === 'welcome' && <WelcomeView onLogin={handleLogin} />}
-                    {view === 'dashboard' && <Dashboard user={user} userData={userData} setUpdateUserData={updateUserData} setView={setView} selectedLevel={selectedLevel} setSelectedLevel={setSelectedLevel} attackMode={attackMode} setAttackMode={setAttackMode} selectedSector={selectedSector} setSelectedSector={setSelectedSector} scenarioMode={scenarioMode} setScenarioMode={setScenarioMode} isOffline={isOffline} />}
-                    {view === 'game' && <GameEngine user={user} userData={userData} setUpdateUserData={updateUserData} setView={setView} targetLevel={selectedLevel} attackMode={attackMode} selectedSector={selectedSector} scenarioMode={scenarioMode} isOffline={isOffline} />}
+                    <main className="max-w-6xl mx-auto px-4 py-8">
+                        {view === 'welcome' && <WelcomeView onLogin={handleLogin} />}
+                        
+                        {view === 'dashboard' && (
+                            <Dashboard 
+                                user={user} 
+                                userData={userData} 
+                                setUpdateUserData={handleUpdateUserData}
+                                setView={setView}
+                                selectedLevel={selectedLevel}
+                                setSelectedLevel={setSelectedLevel}
+                                attackMode={attackMode}
+                                setAttackMode={setAttackMode}
+                                selectedSector={selectedSector}
+                                setSelectedSector={setSelectedSector}
+                                scenarioMode={scenarioMode}
+                                setScenarioMode={setScenarioMode}
+                                isOffline={isOffline}
+                            />
+                        )}
 
-                    <AboutModal isOpen={showAbout} onClose={() => setShowAbout(false)} />
-                    <ReportModal isOpen={showReport} onClose={() => setShowReport(false)} />
+                        {view === 'game' && (
+                            <GameEngine 
+                                user={user}
+                                userData={userData}
+                                setUpdateUserData={handleUpdateUserData}
+                                setView={setView}
+                                targetLevel={selectedLevel}
+                                attackMode={attackMode}
+                                selectedSector={selectedSector}
+                                scenarioMode={scenarioMode}
+                                isOffline={isOffline}
+                            />
+                        )}
+                    </main>
+
+                    <AboutModal isOpen={isAboutOpen} onClose={() => setIsAboutOpen(false)} />
+                    <ReportModal isOpen={isReportOpen} onClose={() => setIsReportOpen(false)} />
                 </div>
-            )
+            );
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
