@@ -52,6 +52,7 @@
         const keyPartB = "M5Uk30o2RjM7nKTDXcvV8Yc";
         const GEMINI_API_KEY = keyPartA + keyPartB;
 
+        // You must update this URL in Stripe to point back to your hosted site with ?payment_success=true
         const STRIPE_LINK = "https://buy.stripe.com/14A5kDgej5t1gmTgjW00000";
 
         const firebaseConfig = {
@@ -94,10 +95,7 @@
 
         // --- 4. LOGIC & FUNCTIONS ---
         function distributeErrors(totalErrors = 30, totalSlots = 10, maxPerSlot = 5) {
-            // NEW: Randomize total errors slightly to prevent "Average Guessing"
-            // Range: 25 to 35 errors (instead of hard 30)
             const actualTotal = Math.floor(25 + Math.random() * 10);
-            
             let slots, safety = 0;
             while(true && safety < 5000) {
                 safety++;
@@ -107,21 +105,18 @@
                     const idx = Math.floor(Math.random() * totalSlots);
                     if (slots[idx] < maxPerSlot) { slots[idx]++; remaining--; }
                 }
-                // Removed the specific "targetThrees" constraint to allow more natural variance
                 return slots; 
             }
             return slots;
         }
 
-        // --- AI FUNCTION (DIRECT CLIENT-SIDE) ---
+        // --- AI FUNCTION ---
         async function callGeminiDirect(prompt) {
             const apiKey = GEMINI_API_KEY; 
             const model = "gemini-2.5-flash-preview-09-2025";
             const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-
-            const delays = [1000, 2000, 4000, 8000, 16000];
-            let lastError = null;
-
+            const delays = [1000, 2000, 4000];
+            
             for (let i = 0; i <= delays.length; i++) {
                 try {
                     const response = await fetch(url, {
@@ -129,28 +124,17 @@
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
                     });
-                    
-                    if (!response.ok) {
-                        const errText = await response.text();
-                        // 403 usually means invalid key. Don't retry indefinitely for auth errors if possible, 
-                        // but simple backoff is safer for generic implementation.
-                        throw new Error(`API Error: ${response.status} - ${errText}`);
-                    }
-
+                    if (!response.ok) throw new Error(`API Error: ${response.status}`);
                     const data = await response.json();
-                    if (data.candidates && data.candidates.length > 0 && data.candidates[0].content) {
+                    if (data.candidates && data.candidates[0].content) {
                          return data.candidates[0].content.parts[0].text;
                     }
-                    throw new Error("No content in response");
-
+                    throw new Error("No content");
                 } catch (e) {
-                    lastError = e;
-                    if (i < delays.length) {
-                        await new Promise(resolve => setTimeout(resolve, delays[i]));
-                    }
+                    if (i < delays.length) await new Promise(resolve => setTimeout(resolve, delays[i]));
                 }
             }
-            throw new Error(`ALL MODELS FAILED:\n${lastError ? lastError.message : "Unknown error"}`);
+            throw new Error(`AI unavailable.`);
         }
 
         // ================= UI COMPONENTS =================
@@ -176,13 +160,12 @@
 
         function CognitiveRadar({ stats }) {
             const data = { Science: stats?.science || 50, Religion: stats?.religion || 50, Pseudo: stats?.pseudo || 50, Supernat: stats?.supernat || 50, Logic: stats?.logic || 50 };
-            const labels = Object.keys(data); // FIXED: Defined labels here!
+            const labels = Object.keys(data);
             const values = Object.values(data);
             const center = 100, radius = 80;
             const getCoords = (val, i) => { const angle = (Math.PI * 2 * i) / 5 - Math.PI / 2; return [center + Math.cos(angle) * (val / 100 * radius), center + Math.sin(angle) * (val / 100 * radius)]; };
             const points = values.map((v, i) => getCoords(v, i).join(',')).join(' ');
             const bgPoints = values.map((_, i) => getCoords(100, i).join(',')).join(' ');
-            
             return (
                 <div className="relative w-full max-w-[200px] mx-auto">
                     <svg viewBox="0 0 200 200" className="w-full h-full drop-shadow-xl">
@@ -281,14 +264,14 @@
             const [promoInput, setPromoInput] = useState('');
 
             const handleUnlock = () => {
-                window.location.href = STRIPE_LINK;
+                window.open(STRIPE_LINK, '_blank');
             };
 
             const handlePromo = async () => {
                 if (promoInput === '555555') {
                     const newProfile = { ...userData, isPremium: true, level: 11 };
-                    setUpdateUserData(newProfile); // Helper to update both local and DB
-                    alert(isOffline ? "Offline Mode: Developer access temporarily unlocked." : "Developer Access Granted");
+                    setUpdateUserData(newProfile); 
+                    alert("Developer Access Granted");
                     setShowPromo(false); setPromoInput('');
                 } else { alert("Invalid Code"); }
             };
@@ -382,7 +365,7 @@
             const [codexContent, setCodexContent] = useState("");
             const [codexTitle, setCodexTitle] = useState("");
             const [codexLoading, setCodexLoading] = useState(false);
-            const [errorMsg, setErrorMsg] = useState(""); // Add error state
+            const [errorMsg, setErrorMsg] = useState("");
 
             useEffect(() => {
                 const generateTest = async () => {
@@ -426,8 +409,6 @@
 
                         // CALL GEMINI DIRECTLY (No Backend Required)
                         const text = await callGeminiDirect(prompt);
-                        
-                        // Parse JSON from the response text
                         let jsonText = text.replace(/```json/g, '').replace(/```/g, '').trim();
                         const data = JSON.parse(jsonText);
                         
@@ -438,7 +419,7 @@
                         
                     } catch (err) { 
                         console.error("Generation failed", err); 
-                        setErrorMsg(err.message); // Set specific error message for UI
+                        setErrorMsg(err.message);
                         setIsLoading(false);
                     } finally { setIsLoading(false); }
                 };
@@ -456,45 +437,27 @@
                     const actualErrors = q.error_count;
                     const userGuess = userAnswers[q.id];
                     const diff = Math.abs(userGuess - actualErrors);
-
-                    // NEW SCORING: Weighted Precision System
-                    // Exact match: 15 pts
-                    // Off by 1: 3 pts (Severely reduced from linear)
-                    // Off by >1: -5 pts (Penalty for inaccuracy)
                     let qScore = 0;
                     if (diff === 0) qScore = 15;
                     else if (diff === 1) qScore = 3;
                     else qScore = -5;
-
                     rawScore += qScore;
-
                     let key = 'Logic';
                     const s = q.sector.toLowerCase();
                     if(s.includes('science')) key = 'science'; else if(s.includes('religion')) key = 'religion'; else if(s.includes('pseudo')) key = 'pseudo'; else if(s.includes('supernat')) key = 'supernat';
                     if(!sectorScores[key]) sectorScores[key] = [];
-                    
-                    // Radar value based on precision
                     let radarVal = 50;
                     if (diff === 0) radarVal = 100;
                     else if (diff === 1) radarVal = 70;
                     else if (diff === 2) radarVal = 30;
                     else radarVal = 10;
-                    
                     sectorScores[key].push(radarVal); 
                 });
 
-                // Calculate final RCTQ
-                // Max Raw Score: 150 (10 * 15) -> Targets ~160 IQ
-                // Guessing 3s Score: ~60 (4 exacts, 4 close, 2 misses) -> Targets ~107 IQ (Average)
-                // Min Score: -50 -> Targets ~70 IQ
-                
-                // Formula: Base 70 + (Raw Score / 150) * 90
                 const finalScore = Math.max(50, Math.round(70 + (rawScore / 150) * 90));
-
                 setScore(finalScore);
                 setGameState('results');
 
-                // --- SAVE DATA (LOCAL STORAGE + DB) ---
                 const newRadar = { ...userData.radar };
                 Object.keys(sectorScores).forEach(k => { 
                     const avg = sectorScores[k].reduce((a,b)=>a+b,0) / sectorScores[k].length; 
@@ -508,7 +471,7 @@
                 };
                 
                 const newProfile = { ...userData, ...updates };
-                setUpdateUserData(newProfile); // Update local + DB
+                setUpdateUserData(newProfile); 
 
                 if (!isOffline && db) {
                     try {
@@ -534,7 +497,6 @@
 
             if (isLoading) { return ( <div className="flex flex-col items-center justify-center h-96 space-y-4"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div><div className={`text-slate-400 animate-pulse ${attackMode ? 'text-red-400' : ''}`}>{attackMode ? "Calibrating Attack Vectors..." : "Constructing Logic Matrices..."}</div></div> ); }
 
-            // --- FAIL SAFE (PREVENTS WHITE SCREEN CRASH) ---
             if (!testData) {
                 return (
                     <div className="flex flex-col items-center justify-center h-64 text-center">
@@ -558,15 +520,7 @@
                                 <button onClick={handleChallenge} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-white font-semibold flex items-center justify-center gap-2"><Share2 className="w-4 h-4" /> Challenge Friend</button>
                             </div>
                             <div className="flex justify-center">
-                                <a 
-                                    href="https://www.facebook.com/groups/1747360393316932" 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="px-6 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white font-semibold flex items-center gap-2 transition transform hover:scale-105 shadow-lg shadow-blue-900/20"
-                                >
-                                    <Icon className="w-4 h-4"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></Icon>
-                                    Share to RCTQ Facebook Group
-                                </a>
+                                <a href="https://www.facebook.com/groups/1747360393316932" target="_blank" rel="noopener noreferrer" className="px-6 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-white font-semibold flex items-center gap-2 transition transform hover:scale-105 shadow-lg shadow-blue-900/20"><Icon className="w-4 h-4"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></Icon>Share to RCTQ Facebook Group</a>
                             </div>
                         </div>
                         <div className="space-y-4">
@@ -617,15 +571,30 @@
                 const unsubscribe = auth.onAuthStateChanged(async (u) => {
                     if (u) {
                         setUser(u);
+                        // Check if returning from payment
+                        const params = new URLSearchParams(window.location.search);
+                        const isPaymentSuccess = params.get('payment_success') === 'true';
+
                         setView('dashboard');
                         // Fetch Data
                         try {
                             const doc = await db.collection('artifacts').doc(appId).collection('users').doc(u.uid).get();
                             if (doc.exists) {
-                                setUserData({ ...userData, ...doc.data() });
+                                let data = doc.data();
+                                // HANDLE PAYMENT SUCCESS
+                                if (isPaymentSuccess) {
+                                    data = { ...data, isPremium: true };
+                                    await db.collection('artifacts').doc(appId).collection('users').doc(u.uid).set(data, { merge: true });
+                                    // Clean URL so refresh doesn't re-trigger (optional but good UX)
+                                    window.history.replaceState({}, document.title, window.location.pathname);
+                                    alert("PAYMENT CONFIRMED: Account Upgraded.");
+                                }
+                                setUserData({ ...userData, ...data });
                             } else {
                                 // Init new user
-                                await db.collection('artifacts').doc(appId).collection('users').doc(u.uid).set(userData);
+                                const newData = isPaymentSuccess ? { ...userData, isPremium: true } : userData;
+                                await db.collection('artifacts').doc(appId).collection('users').doc(u.uid).set(newData);
+                                setUserData(newData);
                             }
                         } catch (e) {
                             console.error("Offline or Error", e);
@@ -663,7 +632,7 @@
                         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
                             <div className="flex items-center gap-2 cursor-pointer" onClick={() => user && setView('dashboard')}>
                                 <Brain className="w-6 h-6 text-indigo-500" />
-                                <span className="font-bold text-lg tracking-tight text-white">RCTQ <span className="text-slate-500 text-xs">ENGINE v2.4</span></span>
+                                <span className="font-bold text-lg tracking-tight text-white">RCTQ <span className="text-slate-500 text-xs">ENGINE v2.5</span></span>
                             </div>
                             <div className="flex items-center gap-4">
                                 <button onClick={() => setIsAboutOpen(true)} className="text-slate-400 hover:text-white transition"><Info className="w-5 h-5" /></button>
